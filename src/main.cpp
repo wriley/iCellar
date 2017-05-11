@@ -14,9 +14,8 @@ NodeMCU connections
 #include <DallasTemperature.h>
 #include <OneWire.h>
 
-const uint8_t LEDHEATERGPIO = 4;
+const uint8_t ONEWIREGPIO = 4;
 const uint8_t LEDFREEZEGPIO = 5;
-const uint8_t ONEWIREGPIO = 9;
 const uint8_t HEATERGPIO = 12;
 const uint8_t RELAYGPIO = 14;
 
@@ -65,10 +64,6 @@ void readSensors() {
   finsTemp = DallasTemperature::toFahrenheit(sensors.getTempC(finsThermometer));
 }
 
-void setHeaterLED(uint8_t state) {
-  digitalWrite(LEDHEATERGPIO, state);
-}
-
 void setFreezeLED(uint8_t state) {
   digitalWrite(LEDFREEZEGPIO, state);
 }
@@ -84,11 +79,6 @@ void setHeater(float v) {
   Serial.print("  analog value ");
   Serial.println(iv);
   analogWrite(HEATERGPIO, iv);
-  if(v > 0.0) {
-    setHeaterLED(1);
-  } else {
-    setHeaterLED(0);
-  }
 }
 
 void logicCallback() {
@@ -151,8 +141,7 @@ void setup() {
 	// setup GPIO inputs
 
 	// setup GPIO outputs
-	pinMode(LEDHEATERGPIO, OUTPUT);
-  pinMode(LEDFREEZEGPIO, OUTPUT);
+	pinMode(LEDFREEZEGPIO, OUTPUT);
   pinMode(RELAYGPIO, OUTPUT);
 
   // setup 1Wire
@@ -185,6 +174,9 @@ void setup() {
   logicTicker.start();
 
   Serial.println("Done with setup, entering main loop");
+
+  // call once at start instead of waiting 1 minute for first Ticker fire
+  logicCallback();
 }
 
 void loop() {
