@@ -60,6 +60,10 @@ void setFreezeLED(uint8_t state) {
   digitalWrite(LEDFREEZEGPIO, state);
 }
 
+void setRelay(uint8_t state) {
+  digitalWrite(RELAYGPIO, state);
+}
+
 void heaterSet(float v) {
   int iv = int(v * 255);
   Serial.print("Setting PWM: ");
@@ -123,6 +127,7 @@ void setup() {
 	// setup GPIO outputs
 	pinMode(LEDHEATERGPIO, OUTPUT);
   pinMode(LEDFREEZEGPIO, OUTPUT);
+  pinMode(RELAYGPIO, OUTPUT);
 
   // setup 1Wire
   sensors.begin();
