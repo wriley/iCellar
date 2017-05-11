@@ -21,6 +21,7 @@ const uint8_t HEATERGPIO = 12;
 const uint8_t RELAYGPIO = 14;
 
 uint8_t ledState = 0;
+uint8_t numDevices = 0;
 float roomTemp;
 float finsTemp;
 Ticker blinkTicker;
@@ -32,6 +33,20 @@ bool needToHeatProbe = false;
 bool finsAreFrozen = false;
 float setPoint = 50.0;
 float deadband = 5.0;
+uint8_t blowingCounter;
+uint8_t fanRunTime = 2;
+uint8_t frozenCounter;
+uint8_t thawTime = 5;
+
+enum airconState {
+  ERROR,
+  OFF,
+  COOLING,
+  BLOWING,
+  FROZEN
+};
+
+airconState currentState;
 
 void blinkCallback() {
   if(ledState == 0) {
@@ -39,8 +54,6 @@ void blinkCallback() {
   } else {
     ledState = 0;
   }
-  Serial.print("blinkCallback: ledState = ");
-  Serial.println(ledState);
   digitalWrite(LED_BUILTIN, ledState);
 }
 
@@ -64,7 +77,7 @@ void setRelay(uint8_t state) {
   digitalWrite(RELAYGPIO, state);
 }
 
-void heaterSet(float v) {
+void setHeater(float v) {
   int iv = int(v * 255);
   Serial.print("Setting PWM: ");
   Serial.print(v);
@@ -81,40 +94,53 @@ void heaterSet(float v) {
 void logicCallback() {
   readSensors();
 
-  // if fins are frozen then do nothing until they thaw
-  if(finsAreFrozen) {
-    if(finsTemp > 36.0) {
-      finsAreFrozen = false;
-    }
-  } else {
-    // do we need to heat temp probe?
-    if(needToHeatProbe && (roomTemp <= 68.0 && roomTemp > setPoint)) {
-      heaterSet(0.75);
-    } else {
-      heaterSet(0.0);
-    }
+  Serial.println("In logicCallback");
+  Serial.print("roomTemp: ");
+  Serial.print(roomTemp);
+  Serial.print("  finsTemp: ");
+  Serial.print(finsTemp);
+  Serial.print("  currentState: ");
+  Serial.println(currentState);
 
-    // shut off heater if below setpoint or fins are frozen
-    if(roomTemp <= setPoint || finsTemp <= 32.0) {
-      needToHeatProbe = false;
-      heaterSet(0.0);
-    }
-
-    // fins are frozen
-    if(finsTemp <= 32.0) {
-      finsAreFrozen = true;
-    }
-
-    // if we're not heating temp probe do we need to next loop?
-    if(!needToHeatProbe && (roomTemp >= (setPoint + deadband)) && finsTemp > 36.0) {
-      needToHeatProbe = true;
-    }
+  switch(currentState) {
+    case ERROR:
+      setHeater(0.0);
+      setRelay(0);
+      break;
+    case OFF:
+      setHeater(0.0);
+      setRelay(0);
+      if(roomTemp <= 68.0 && roomTemp > setPoint) {
+        currentState = COOLING;
+      }
+      break;
+    case COOLING:
+      setHeater(0.75);
+      setRelay(1);
+      if(roomTemp <= setPoint || finsTemp <= 32.0) {
+        currentState = BLOWING;
+      }
+      break;
+    case BLOWING:
+      setHeater(0.0);
+      setRelay(1);
+      if(blowingCounter++ > fanRunTime) {
+        currentState = OFF;
+      }
+      break;
+    case FROZEN:
+      setHeater(0.0);
+      setRelay(1);
+      if(frozenCounter++ > thawTime) {
+        currentState = OFF;
+      }
+      break;
   }
 }
 
 // main setup
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   delay(100);
   Serial.println("");
   Serial.println("Beginning setup");
@@ -133,7 +159,7 @@ void setup() {
   sensors.begin();
   Serial.println("Locating 1Wire devices...");
   Serial.print("Found ");
-  uint8_t numDevices = sensors.getDeviceCount();
+  numDevices = sensors.getDeviceCount();
   Serial.print(numDevices, DEC);
   Serial.println(" devices.");
   if(numDevices != 2) {
@@ -142,6 +168,12 @@ void setup() {
   }
   if (!sensors.getAddress(roomThermometer, 0)) Serial.println("Unable to find address for Device 0");
   if (!sensors.getAddress(finsThermometer, 1)) Serial.println("Unable to find address for Device 1");
+
+  if(numDevices == 2) {
+    currentState = OFF;
+  } else {
+    currentState = ERROR;
+  }
 
   // setup tickers
   blinkTicker.setCallback(blinkCallback);
