@@ -20,6 +20,7 @@ NodeMCU connections
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
 #include <BlynkSimpleEsp8266.h>
+#include "config.h"
 
 #define BLYNK_PRINT Serial
 
@@ -44,7 +45,6 @@ OneWire oneWire(ONEWIREGPIO);
 DallasTemperature sensors(&oneWire);
 WiFiManager wifiManager;
 bool needToHeatProbe = false;
-bool finsAreFrozen = false;
 float setPoint = 50.0;
 float deadband = 5.0;
 uint8_t blowingCounter;
@@ -52,7 +52,7 @@ uint8_t fanRunTime = 2;
 uint8_t frozenCounter;
 uint8_t thawTime = 5;
 bool wifiConnected = false;
-char blynk_token[32] = "YOUR_BLYNK_TOKEN";
+
 ESP8266WebServer httpServer(80);
 ESP8266HTTPUpdateServer httpUpdater;
 File fsUploadFile;
@@ -129,37 +129,41 @@ void logicCallback() {
 
     switch(currentState) {
         case ERROR:
-        setHeater(0.0);
-        setRelay(0);
-        break;
+            setHeater(0.0);
+            setRelay(0);
+            break;
         case OFF:
-        setHeater(0.0);
-        setRelay(0);
-        if(roomTemp <= 68.0 && roomTemp > setPoint) {
-            currentState = COOLING;
-        }
-        break;
+            setHeater(0.0);
+            setRelay(0);
+            if(roomTemp <= 68.0 && roomTemp > setPoint) {
+                currentState = COOLING;
+            }
+            break;
         case COOLING:
-        setHeater(0.75);
-        setRelay(1);
-        if(roomTemp <= setPoint || finsTemp <= 32.0) {
-            currentState = BLOWING;
-        }
-        break;
+            setHeater(0.75);
+            setRelay(1);
+            if(finsTemp < 32.0) {
+                frozenCounter = 0;
+                currentState = FROZEN;
+            } else if (roomTemp <= setPoint) {
+                blowingCounter = 0;
+                currentState = BLOWING;
+            }
+            break;
         case BLOWING:
-        setHeater(0.0);
-        setRelay(1);
-        if(blowingCounter++ > fanRunTime) {
-            currentState = OFF;
-        }
-        break;
+            setHeater(0.0);
+            setRelay(1);
+            if(blowingCounter++ > fanRunTime) {
+                currentState = OFF;
+            }
+            break;
         case FROZEN:
-        setHeater(0.0);
-        setRelay(1);
-        if(frozenCounter++ > thawTime) {
-            currentState = OFF;
-        }
-        break;
+            setHeater(0.0);
+            setRelay(1);
+            if(frozenCounter++ > thawTime) {
+                currentState = OFF;
+            }
+            break;
     }
 }
 
@@ -445,16 +449,13 @@ void setup() {
 }
 
 void loop() {
-    uptimeTicker.update();
-    blinkTicker.update();
-    logicTicker.update();
-
     if(!wifiConnected) {
         wifiConnect();
     }
     httpServer.handleClient();
-
+    uptimeTicker.update();
+    blinkTicker.update();
+    logicTicker.update();
     Blynk.run();
-
     ESP.wdtFeed();
 }
