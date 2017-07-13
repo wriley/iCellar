@@ -342,11 +342,41 @@ void setup() {
 
     // setup GPIO outputs
     pinMode(LEDFREEZEGPIO, OUTPUT);
+    digitalWrite(LEDFREEZEGPIO, 0);
     pinMode(RELAYGPIO, OUTPUT);
+    digitalWrite(RELAYGPIO, 0);
 
     // setup watchdog
     ESP.wdtDisable();
     ESP.wdtEnable(WDTO_8S);
+
+    // test outputs
+
+    Serial.println("Testing outputs...");
+    delay(500);
+
+    Serial.println("Freeze LED ON");
+    setFreezeLED(1);
+    delay(1000);
+    setFreezeLED(0);
+    Serial.println("Freeze LED OFF");
+
+    Serial.println("Heater ON");
+    setHeater(0.1);
+    delay(1000);
+    setHeater(0.0);
+    Serial.println("Heater OFF");
+
+    Serial.println("Relay ON");
+    setRelay(1);
+    delay(1000);
+    setRelay(0);
+    Serial.println("Relay OFF");
+
+    delay(1000);
+
+    // end tests
+
 
     //read configuration from FS json
     Serial.println("mounting FS...");
