@@ -134,14 +134,14 @@ void logicCallback() {
             break;
         case OFF:
             setHeater(0.0);
-            setRelay(0);
+            setRelay(1);
             if(roomTemp <= 68.0 && roomTemp > setPoint) {
                 currentState = COOLING;
             }
             break;
         case COOLING:
             setHeater(0.75);
-            setRelay(1);
+            setRelay(0);
             if(finsTemp < 32.0) {
                 frozenCounter = 0;
                 currentState = FROZEN;
@@ -152,14 +152,14 @@ void logicCallback() {
             break;
         case BLOWING:
             setHeater(0.0);
-            setRelay(1);
+            setRelay(0);
             if(blowingCounter++ > fanRunTime) {
                 currentState = OFF;
             }
             break;
         case FROZEN:
             setHeater(0.0);
-            setRelay(1);
+            setRelay(0);
             if(frozenCounter++ > thawTime) {
                 currentState = OFF;
             }
