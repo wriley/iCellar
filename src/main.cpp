@@ -45,7 +45,7 @@ OneWire oneWire(ONEWIREGPIO);
 DallasTemperature sensors(&oneWire);
 WiFiManager wifiManager;
 bool needToHeatProbe = false;
-float setPoint = 50.0;
+float setPoint = 60.0;
 float deadband = 5.0;
 uint8_t blowingCounter;
 uint8_t fanRunTime = 2;
