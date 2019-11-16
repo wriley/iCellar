@@ -24,21 +24,23 @@ NodeMCU connections
 #define BLYNK_PRINT Serial
 
 #define ONEWIREGPIO 4
-#define LEDFREEZEGPIO 5
+#define LEDREDGPIO 5
 #define RELAYGPIO 14
 
 #define UPDATE_PATH         "/firmware"
 #define UPDATE_USERNAME     "admin"
+// change password for production use
 #define UPDATE_PASSWORD     "admin"
 
 uint8_t ledState = 0;
 uint8_t numDevices = 0;
-float roomTemp;
-float finsTemp;
+float temp1;
+float temp2;
 Ticker blinkTicker;
 Ticker logicTicker;
 Ticker uptimeTicker;
-DeviceAddress roomThermometer, finsThermometer;
+DeviceAddress temp1Thermometer;
+DeviceAddress temp2Thermometer;
 OneWire oneWire(ONEWIREGPIO);
 DallasTemperature sensors(&oneWire);
 WiFiManager wifiManager;
@@ -52,13 +54,13 @@ File fsUploadFile;
 long uptimeSeconds = 0;
 String resetReason = ESP.getResetReason();
 
-enum airconState {
+enum heaterState {
     ERROR=-1,
     OFF,
     HEATING
 };
 
-airconState currentState;
+heaterState currentState;
 
 void uptimeCallback() {
     uptimeSeconds++;
@@ -77,12 +79,12 @@ void readSensors() {
     Serial.println("Requesting temperatures...");
     sensors.requestTemperatures();
     Serial.println("Done");
-    roomTemp = DallasTemperature::toFahrenheit(sensors.getTempC(roomThermometer));
-    finsTemp = DallasTemperature::toFahrenheit(sensors.getTempC(finsThermometer));
+    temp1 = DallasTemperature::toFahrenheit(sensors.getTempC(temp1Thermometer));
+    temp2 = DallasTemperature::toFahrenheit(sensors.getTempC(temp2Thermometer));
 }
 
-void setFreezeLED(uint8_t state) {
-    digitalWrite(LEDFREEZEGPIO, state);
+void setRedLED(uint8_t state) {
+    digitalWrite(LEDREDGPIO, state);
 }
 
 void setRelay(uint8_t state) {
@@ -93,17 +95,17 @@ void logicCallback() {
     readSensors();
 
     Serial.println("In logicCallback");
-    Serial.print("  roomTemp: ");
-    Serial.print(roomTemp);
-    Serial.print("  finsTemp: ");
-    Serial.print(finsTemp);
+    Serial.print("temp1: ");
+    Serial.print(temp1);
+    Serial.print("  temp2: ");
+    Serial.print(temp2);
     Serial.print("  currentState: ");
     Serial.println(currentState);
 
     if(wifiConnected) {
         Serial.println("Sending to Blynk...");
-        Blynk.virtualWrite(V0, int(roomTemp));
-        Blynk.virtualWrite(V1, int(finsTemp));
+        Blynk.virtualWrite(V0, int(temp1));
+        Blynk.virtualWrite(V1, int(temp2));
         Blynk.virtualWrite(V2, currentState);
         Blynk.virtualWrite(V5, uptimeSeconds);
         Serial.println("Done");
@@ -112,16 +114,19 @@ void logicCallback() {
     switch(currentState) {
         case ERROR:
             setRelay(0);
+            setRedLED(0);
             break;
         case OFF:
             setRelay(0);
-            if(roomTemp <= setPoint + hysteresis) {
+            setRedLED(0);
+            if(temp1 <= (setPoint - hysteresis)) {
                 currentState = HEATING;
             }
             break;
         case HEATING:
             setRelay(1);
-            if (roomTemp >= setPoint + hysteresis) {
+            setRedLED(1);
+            if (temp1 >= (setPoint + hysteresis)) {
               currentState = OFF;
             }
             break;
@@ -210,9 +215,9 @@ void handleFileDelete(){
     if(httpServer.args() == 0) return httpServer.send(500, "text/plain", "BAD ARGS");
     String path = httpServer.arg(0);
     if(path == "/")
-    return httpServer.send(500, "text/plain", "BAD PATH");
+      return httpServer.send(500, "text/plain", "BAD PATH");
     if(!SPIFFS.exists(path))
-    return httpServer.send(404, "text/plain", "FileNotFound");
+      return httpServer.send(404, "text/plain", "FileNotFound");
     SPIFFS.remove(path);
     httpServer.send(200, "text/plain", "");
     path = String();
@@ -281,8 +286,8 @@ void handleStatus() {
     JsonObject root = doc.to<JsonObject>();
     root["uptime"] = uptimeSeconds;
     root["freeHeap"] = ESP.getFreeHeap();
-    root["roomTemp"] = roomTemp;
-    root["finsTemp"] = finsTemp;
+    root["temp1"] = temp1;
+    root["temp2"] = temp2;
     int currentStateVal = currentState;
     root["currentState"] = currentStateVal;
     root["resetReason"] = resetReason;
@@ -296,7 +301,7 @@ void handleStatus() {
 
 // main setup
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(9600);
     delay(100);
     Serial.println("");
     Serial.println("Beginning setup");
@@ -307,8 +312,8 @@ void setup() {
     // setup GPIO inputs
 
     // setup GPIO outputs
-    pinMode(LEDFREEZEGPIO, OUTPUT);
-    digitalWrite(LEDFREEZEGPIO, 0);
+    pinMode(LEDREDGPIO, OUTPUT);
+    digitalWrite(LEDREDGPIO, 0);
     pinMode(RELAYGPIO, OUTPUT);
     digitalWrite(RELAYGPIO, 0);
 
@@ -322,10 +327,10 @@ void setup() {
     delay(500);
 
     Serial.println("Red LED ON");
-    setFreezeLED(1);
+    setRedLED(1);
     delay(1000);
-    setFreezeLED(0);
-    Serial.println("Freeze LED OFF");
+    setRedLED(0);
+    Serial.println("Red LED OFF");
 
     Serial.println("Relay ON");
     setRelay(1);
@@ -384,33 +389,14 @@ void setup() {
         Serial.print("!!!ERROR!!! Expected 2 1Wire devices but found ");
         Serial.println(numDevices, DEC);
     }
-    if (!sensors.getAddress(roomThermometer, 0)) Serial.println("Unable to find address for Device 0");
-    if (!sensors.getAddress(finsThermometer, 1)) Serial.println("Unable to find address for Device 1");
+    if (!sensors.getAddress(temp1Thermometer, 0)) Serial.println("Unable to find address for Device 0");
+    if (!sensors.getAddress(temp2Thermometer, 1)) Serial.println("Unable to find address for Device 1");
 
     if(numDevices == 2) {
         currentState = OFF;
     } else {
         currentState = ERROR;
     }
-
-    // setup tickers
-    /*
-    blinkTicker.setCallback(blinkCallback);
-    blinkTicker.setInterval(500);
-    blinkTicker.start();
-
-    logicTicker.setCallback(logicCallback);
-    logicTicker.setInterval(60000);
-    logicTicker.start();
-
-    uptimeTicker.setCallback(uptimeCallback);
-    uptimeTicker.setInterval(1000);
-    uptimeTicker.start();
-    */
-
-    blinkTicker.attach(0.5, blinkCallback);
-    logicTicker.attach(60, logicCallback);
-    uptimeTicker.attach(1, uptimeCallback);
 
     wifiManager.setTimeout(180);
     wifiConnect();
@@ -431,7 +417,10 @@ void setup() {
 
     Serial.println("Done with setup, entering main loop");
 
-    // call once at start instead of waiting 1 minute for first Ticker fire
+    blinkTicker.attach(0.5, blinkCallback);
+    logicTicker.attach(60, logicCallback);
+    uptimeTicker.attach(1, uptimeCallback);
+
     logicCallback();
 }
 
@@ -440,9 +429,6 @@ void loop() {
         wifiConnect();
     }
     httpServer.handleClient();
-    //uptimeTicker.update();
-    //blinkTicker.update();
-    //logicTicker.update();
     Blynk.run();
     ESP.wdtFeed();
 }
