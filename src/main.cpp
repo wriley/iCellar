@@ -2,8 +2,7 @@
 
 NodeMCU connections
 4     1Wire temp sensors
-5     freeze LED (red)
-12    heater resistor (software PWM)
+5     red LED
 14    relay for AC fan
 
 */
@@ -26,7 +25,6 @@ NodeMCU connections
 
 #define ONEWIREGPIO 4
 #define LEDFREEZEGPIO 5
-#define HEATERGPIO 12
 #define RELAYGPIO 14
 
 #define UPDATE_PATH         "/firmware"
@@ -44,13 +42,8 @@ DeviceAddress roomThermometer, finsThermometer;
 OneWire oneWire(ONEWIREGPIO);
 DallasTemperature sensors(&oneWire);
 WiFiManager wifiManager;
-bool needToHeatProbe = false;
-float setPoint = 60.0;
-float deadband = 5.0;
-uint8_t blowingCounter;
-uint8_t fanRunTime = 2;
-uint8_t frozenCounter;
-uint8_t thawTime = 5;
+float setPoint = 90.0;
+float hysteresis = 2.0;
 bool wifiConnected = false;
 
 ESP8266WebServer httpServer(80);
@@ -62,9 +55,7 @@ String resetReason = ESP.getResetReason();
 enum airconState {
     ERROR=-1,
     OFF,
-    COOLING,
-    BLOWING,
-    FROZEN
+    HEATING
 };
 
 airconState currentState;
@@ -98,20 +89,11 @@ void setRelay(uint8_t state) {
     digitalWrite(RELAYGPIO, state);
 }
 
-void setHeater(float v) {
-    int iv = int(v * 255);
-    Serial.print("Setting PWM: ");
-    Serial.print(v);
-    Serial.print("  analog value ");
-    Serial.println(iv);
-    analogWrite(HEATERGPIO, iv);
-}
-
 void logicCallback() {
     readSensors();
 
     Serial.println("In logicCallback");
-    Serial.print("roomTemp: ");
+    Serial.print("  roomTemp: ");
     Serial.print(roomTemp);
     Serial.print("  finsTemp: ");
     Serial.print(finsTemp);
@@ -129,39 +111,18 @@ void logicCallback() {
 
     switch(currentState) {
         case ERROR:
-            setHeater(0.0);
             setRelay(0);
             break;
         case OFF:
-            setHeater(0.0);
+            setRelay(0);
+            if(roomTemp <= setPoint + hysteresis) {
+                currentState = HEATING;
+            }
+            break;
+        case HEATING:
             setRelay(1);
-            if(roomTemp <= 68.0 && roomTemp > setPoint) {
-                currentState = COOLING;
-            }
-            break;
-        case COOLING:
-            setHeater(0.75);
-            setRelay(0);
-            if(finsTemp < 32.0) {
-                frozenCounter = 0;
-                currentState = FROZEN;
-            } else if (roomTemp <= setPoint) {
-                blowingCounter = 0;
-                currentState = BLOWING;
-            }
-            break;
-        case BLOWING:
-            setHeater(0.0);
-            setRelay(0);
-            if(blowingCounter++ > fanRunTime) {
-                currentState = OFF;
-            }
-            break;
-        case FROZEN:
-            setHeater(0.0);
-            setRelay(0);
-            if(frozenCounter++ > thawTime) {
-                currentState = OFF;
+            if (roomTemp >= setPoint + hysteresis) {
+              currentState = OFF;
             }
             break;
     }
@@ -219,7 +180,11 @@ bool handleFileRead(String path) {
         File file = SPIFFS.open(path, "r");
         size_t sent = httpServer.streamFile(file, contentType);
         file.close();
-        return true;
+        if(sent > 0) {
+          return true;
+        } else {
+          return false;
+        }
     }
     return false;
 }
@@ -312,8 +277,8 @@ void handleNotFound(){
 }
 
 void handleStatus() {
-    StaticJsonBuffer<400> jsonBuffer;
-    JsonObject& root = jsonBuffer.createObject();
+    StaticJsonDocument<400> doc;
+    JsonObject root = doc.to<JsonObject>();
     root["uptime"] = uptimeSeconds;
     root["freeHeap"] = ESP.getFreeHeap();
     root["roomTemp"] = roomTemp;
@@ -322,8 +287,9 @@ void handleStatus() {
     root["currentState"] = currentStateVal;
     root["resetReason"] = resetReason;
     char msg[400];
-    char *firstChar = msg;
-    root.printTo(firstChar, sizeof(msg) - strlen(msg));
+    //char *firstChar = msg;
+    //root.printTo(firstChar, sizeof(msg) - strlen(msg));
+    serializeJson(doc, msg);
     httpServer.send(200, "text/json", msg);
 }
 
@@ -355,17 +321,11 @@ void setup() {
     Serial.println("Testing outputs...");
     delay(500);
 
-    Serial.println("Freeze LED ON");
+    Serial.println("Red LED ON");
     setFreezeLED(1);
     delay(1000);
     setFreezeLED(0);
     Serial.println("Freeze LED OFF");
-
-    Serial.println("Heater ON");
-    setHeater(0.1);
-    delay(1000);
-    setHeater(0.0);
-    Serial.println("Heater OFF");
 
     Serial.println("Relay ON");
     setRelay(1);
@@ -398,23 +358,14 @@ void setup() {
             File configFile = SPIFFS.open("/config.json", "r");
             if (configFile) {
                 Serial.println("opened config file");
-                size_t size = configFile.size();
-                // Allocate a buffer to store contents of the file.
-                std::unique_ptr<char[]> buf(new char[size]);
 
-                configFile.readBytes(buf.get(), size);
-                DynamicJsonBuffer jsonBuffer;
-                JsonObject& json = jsonBuffer.parseObject(buf.get());
-                json.printTo(Serial);
-                if (json.success()) {
-                    Serial.println("\nparsed json");
-
-                    if(json.containsKey("blynk_token")) {
-                        strcpy(blynk_token, json["blynk_token"]);
-                    }
-                } else {
-                    Serial.println("failed to load json config");
+                StaticJsonDocument<64> doc;
+                DeserializationError error = deserializeJson(doc, configFile);
+                if(error) {
+                  Serial.println("failed to load json config");
                 }
+
+                strcpy(blynk_token, doc["blynk_token"]);
             }
         }
     }
@@ -443,6 +394,7 @@ void setup() {
     }
 
     // setup tickers
+    /*
     blinkTicker.setCallback(blinkCallback);
     blinkTicker.setInterval(500);
     blinkTicker.start();
@@ -454,6 +406,11 @@ void setup() {
     uptimeTicker.setCallback(uptimeCallback);
     uptimeTicker.setInterval(1000);
     uptimeTicker.start();
+    */
+
+    blinkTicker.attach(0.5, blinkCallback);
+    logicTicker.attach(60, logicCallback);
+    uptimeTicker.attach(1, uptimeCallback);
 
     wifiManager.setTimeout(180);
     wifiConnect();
@@ -483,9 +440,9 @@ void loop() {
         wifiConnect();
     }
     httpServer.handleClient();
-    uptimeTicker.update();
-    blinkTicker.update();
-    logicTicker.update();
+    //uptimeTicker.update();
+    //blinkTicker.update();
+    //logicTicker.update();
     Blynk.run();
     ESP.wdtFeed();
 }
