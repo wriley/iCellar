@@ -419,7 +419,7 @@ void setup() {
     Serial.println("Done with setup, entering main loop");
 
     blinkTicker.attach(0.5, blinkCallback);
-    logicTicker.attach(60, logicCallback);
+    logicTicker.attach(30, logicCallback);
     uptimeTicker.attach(1, uptimeCallback);
 
     logicCallback();
