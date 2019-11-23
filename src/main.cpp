@@ -62,8 +62,30 @@ enum heaterState {
 
 heaterState currentState;
 
+void setRedLED(uint8_t state) {
+    digitalWrite(LEDREDGPIO, state);
+}
+
+void setRelay(uint8_t state) {
+    digitalWrite(RELAYGPIO, state);
+}
+
 void uptimeCallback() {
     uptimeSeconds++;
+    switch(currentState) {
+        case ERROR:
+            setRelay(0);
+            setRedLED(0);
+            break;
+        case OFF:
+            setRelay(0);
+            setRedLED(0);
+            break;
+        case HEATING:
+            setRelay(1);
+            setRedLED(1);
+            break;
+    }
 }
 
 void blinkCallback() {
@@ -81,14 +103,6 @@ void readSensors() {
     Serial.println("Done");
     temp1 = DallasTemperature::toFahrenheit(sensors.getTempC(temp1Thermometer));
     temp2 = DallasTemperature::toFahrenheit(sensors.getTempC(temp2Thermometer));
-}
-
-void setRedLED(uint8_t state) {
-    digitalWrite(LEDREDGPIO, state);
-}
-
-void setRelay(uint8_t state) {
-    digitalWrite(RELAYGPIO, state);
 }
 
 void logicCallback() {
@@ -111,25 +125,12 @@ void logicCallback() {
         Serial.println("Done");
     }
 
-    switch(currentState) {
-        case ERROR:
-            setRelay(0);
-            setRedLED(0);
-            break;
-        case OFF:
-            setRelay(0);
-            setRedLED(0);
-            if(temp1 <= (setPoint - hysteresis)) {
-                currentState = HEATING;
-            }
-            break;
-        case HEATING:
-            setRelay(1);
-            setRedLED(1);
-            if (temp1 >= (setPoint + hysteresis)) {
-              currentState = OFF;
-            }
-            break;
+    if(temp1 <= (setPoint - hysteresis)) {
+        currentState = HEATING;
+    }
+
+    if (temp1 >= (setPoint + hysteresis)) {
+      currentState = OFF;
     }
 }
 
