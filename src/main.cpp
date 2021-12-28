@@ -18,8 +18,8 @@ NodeMCU connections
 #include <ESP8266HTTPUpdateServer.h>
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
-#include <BlynkSimpleEsp8266.h>
-#include "config.h"
+//#include <BlynkSimpleEsp8266.h>
+//#include "config.h"
 
 #define BLYNK_PRINT Serial
 
@@ -44,8 +44,8 @@ DeviceAddress temp2Thermometer;
 OneWire oneWire(ONEWIREGPIO);
 DallasTemperature sensors(&oneWire);
 WiFiManager wifiManager;
-float setPoint = 90.0;
-float hysteresis = 2.0;
+float setPoint = 75.0;
+float hysteresis = 0.5;
 bool wifiConnected = false;
 
 ESP8266WebServer httpServer(80);
@@ -116,6 +116,7 @@ void logicCallback() {
     Serial.print("  currentState: ");
     Serial.println(currentState);
 
+    /*
     if(wifiConnected) {
         Serial.println("Sending to Blynk...");
         Blynk.virtualWrite(V0, int(temp1));
@@ -124,6 +125,7 @@ void logicCallback() {
         Blynk.virtualWrite(V5, uptimeSeconds);
         Serial.println("Done");
     }
+    */
 
     if(temp1 <= (setPoint - hysteresis)) {
         currentState = HEATING;
@@ -137,8 +139,8 @@ void logicCallback() {
 void wifiConnect() {
     if (wifiManager.autoConnect()) {
         wifiConnected = true;
-        Blynk.config(blynk_token);
-        Blynk.connect();
+        //Blynk.config(blynk_token);
+        //Blynk.connect();
     } else {
         wifiConnected = false;
         Serial.println("wifiManager: failed to connect and hit timeout");
@@ -289,6 +291,7 @@ void handleStatus() {
     root["freeHeap"] = ESP.getFreeHeap();
     root["temp1"] = temp1;
     root["temp2"] = temp2;
+    root["setPoint"] = setPoint;
     int currentStateVal = currentState;
     root["currentState"] = currentStateVal;
     root["resetReason"] = resetReason;
@@ -371,13 +374,13 @@ void setup() {
                   Serial.println("failed to load json config");
                 }
 
-                strcpy(blynk_token, doc["blynk_token"]);
+                //strcpy(blynk_token, doc["blynk_token"]);
             }
         }
     }
 
-    Serial.print("Blynk token: ");
-    Serial.println(blynk_token);
+    //Serial.print("Blynk token: ");
+    //Serial.println(blynk_token);
 
     // setup 1Wire
     sensors.begin();
@@ -430,6 +433,6 @@ void loop() {
         wifiConnect();
     }
     httpServer.handleClient();
-    Blynk.run();
+    //Blynk.run();
     ESP.wdtFeed();
 }
